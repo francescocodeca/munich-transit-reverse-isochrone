@@ -30,6 +30,7 @@ def read_gtfs_table(
 
 
 WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+ON_DEMAND_MARKER = "flexlinie"
 
 
 def active_service_ids(feed_path: Path, date: dt.date) -> set[str]:
@@ -59,6 +60,40 @@ def active_service_ids(feed_path: Path, date: dt.date) -> set[str]:
     added = set(on_day.loc[on_day["exception_type"] == "1", "service_id"])
     removed = set(on_day.loc[on_day["exception_type"] == "2", "service_id"])
     return (active | added) - removed
+
+
+def active_trip_ids(feed_path: Path, date: dt.date) -> set[str]:
+    """Return the trip_id values that run on a given date.
+
+    Args:
+        feed_path: Path of the GTFS ZIP file.
+        date: Service date.
+
+    Returns:
+        The set of active trip_id values (empty if the date is outside the feed).
+    """
+    trips = read_gtfs_table(feed_path, "trips", usecols=["trip_id", "service_id"])
+    services = active_service_ids(feed_path, date)
+    return set(trips.loc[trips["service_id"].isin(services), "trip_id"])
+
+
+def on_demand_trip_ids(feed_path: Path) -> set[str]:
+    """Return the trip_id values of on-demand services (MVV FLEXlinie).
+
+    FLEXlinie trips follow a timetable but run only if booked in advance. The MVV feed does
+    not mark them with pickup_type = 2, so they are recognised by ON_DEMAND_MARKER in the
+    trip_id, ignoring case. This rule is specific to the MVV feed: with other feeds it
+    returns an empty set.
+
+    Args:
+        feed_path: Path of the GTFS ZIP file.
+
+    Returns:
+        The set of on-demand trip_id values over the whole feed period.
+    """
+    trips = read_gtfs_table(feed_path, "trips", usecols=["trip_id"])
+    is_on_demand = trips["trip_id"].str.contains(ON_DEMAND_MARKER, case=False, regex=False)
+    return set(trips.loc[is_on_demand, "trip_id"])
 
 
 def gtfs_time_to_seconds(times: pd.Series) -> pd.Series:
