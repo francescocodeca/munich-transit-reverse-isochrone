@@ -59,3 +59,19 @@ def active_service_ids(feed_path: Path, date: dt.date) -> set[str]:
     added = set(on_day.loc[on_day["exception_type"] == "1", "service_id"])
     removed = set(on_day.loc[on_day["exception_type"] == "2", "service_id"])
     return (active | added) - removed
+
+
+def gtfs_time_to_seconds(times: pd.Series) -> pd.Series:
+    """Convert GTFS times "HH:MM:SS" to seconds after midnight of the service day.
+
+    Hours can be 24 or more for trips that continue after midnight: they are kept as they
+    are, so that times of the same service day stay in chronological order.
+
+    Args:
+        times: Series of strings in the format "HH:MM:SS".
+
+    Returns:
+        Series of integers (int64) with the same index.
+    """
+    parts = times.str.split(":", expand=True).astype("int64")
+    return parts[0] * 3600 + parts[1] * 60 + parts[2]
