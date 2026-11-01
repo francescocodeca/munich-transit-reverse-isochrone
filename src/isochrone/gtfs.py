@@ -1,5 +1,6 @@
 """Read tables of a GTFS feed stored as a ZIP file."""
 
+import datetime as dt
 import zipfile
 from pathlib import Path
 
@@ -26,3 +27,35 @@ def read_gtfs_table(
     """
     with zipfile.ZipFile(feed_path) as feed, feed.open(f"{name}.txt") as f:
         return pd.read_csv(f, dtype=str, usecols=usecols, encoding="utf-8-sig")
+
+
+WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def active_service_ids(feed_path: Path, date: dt.date) -> set[str]:
+    """Return the service_id values that run on a given date.
+
+    A service is active if the date lies in its calendar.txt range and its weekday column
+    is "1", or if calendar_dates.txt adds it on that date (exception_type "1"). Services
+    removed on that date (exception_type "2") are excluded in both cases.
+
+    Args:
+        feed_path: Path of the GTFS ZIP file.
+        date: Service date.
+
+    Returns:
+        The set of active service_id values (empty if the date is outside the feed).
+    """
+    day = date.strftime("%Y%m%d")
+    weekday = WEEKDAYS[date.weekday()]
+
+    calendar = read_gtfs_table(feed_path, "calendar")
+    in_range = (calendar["start_date"] <= day) & (day <= calendar["end_date"])
+    runs_on_weekday = calendar[weekday] == "1"
+    active = set(calendar.loc[in_range & runs_on_weekday, "service_id"])
+
+    exceptions = read_gtfs_table(feed_path, "calendar_dates")
+    on_day = exceptions[exceptions["date"] == day]
+    added = set(on_day.loc[on_day["exception_type"] == "1", "service_id"])
+    removed = set(on_day.loc[on_day["exception_type"] == "2", "service_id"])
+    return (active | added) - removed
