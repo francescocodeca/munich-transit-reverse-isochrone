@@ -84,3 +84,45 @@ def find_platform_pairs(platforms: pd.DataFrame, radius_m: float = 400.0) -> pd.
             "distance_m": np.hypot(xy[i, 0] - xy[j, 0], xy[i, 1] - xy[j, 1]),
         }
     )
+
+
+def build_transfers(
+    feed_path: Path,
+    radius_m: float = 400.0,
+    min_transfer_s: int = 120,
+    walking_speed_mps: float = 1.0,
+    margin_s: int = 120,
+) -> pd.DataFrame:
+    """Return the walking transfers between platforms, with their durations.
+
+    A transfer from a platform to itself takes min_transfer_s. A transfer between two distinct
+    platforms linked by find_platform_pairs takes the straight-line walking time plus margin_s,
+    and at least min_transfer_s. Walking times are rounded up to whole seconds.
+
+    Args:
+        feed_path: Path of the GTFS ZIP file.
+        radius_m: Maximum straight-line distance in metres between platforms of different
+            stations.
+        min_transfer_s: Minimum duration of any transfer, in seconds.
+        walking_speed_mps: Walking speed in metres per second.
+        margin_s: Extra time in seconds for a transfer between distinct platforms (getting off,
+            stairs, finding the way).
+
+    Returns:
+        DataFrame with columns from_stop, to_stop, distance_m and duration_s (integer seconds).
+    """
+    platforms = load_platforms(feed_path)
+    pairs = find_platform_pairs(platforms, radius_m)
+
+    walk_s = np.ceil(pairs["distance_m"].to_numpy() / walking_speed_mps) + margin_s
+    pairs["duration_s"] = np.maximum(walk_s, min_transfer_s).astype("int64")
+
+    same_platform = pd.DataFrame(
+        {
+            "from_stop": platforms["stop_id"],
+            "to_stop": platforms["stop_id"],
+            "distance_m": 0.0,
+            "duration_s": min_transfer_s,
+        }
+    )
+    return pd.concat([same_platform, pairs], ignore_index=True)
