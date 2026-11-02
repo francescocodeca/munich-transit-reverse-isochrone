@@ -2,8 +2,10 @@
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from pyproj import Transformer
+from scipy.spatial import cKDTree
 
 from isochrone.gtfs import read_gtfs_table
 
@@ -44,3 +46,41 @@ def load_platforms(feed_path: Path) -> pd.DataFrame:
         }
     )
 
+
+def find_platform_pairs(platforms: pd.DataFrame, radius_m: float = 400.0) -> pd.DataFrame:
+    """Return the ordered pairs of distinct platforms that are linked by a walking transfer.
+
+    Two platforms are linked if they belong to the same station (same parent_station), at any
+    distance, or if their straight-line distance is at most radius_m. Each linked pair appears
+    in both directions; pairs of a platform with itself are not included.
+
+    Args:
+        platforms: DataFrame with columns stop_id, parent_station, x and y, as returned by
+            load_platforms.
+        radius_m: Maximum straight-line distance in metres between platforms of different
+            stations.
+
+    Returns:
+        DataFrame with columns from_stop, to_stop and distance_m (straight-line, metres).
+    """
+    xy = platforms[["x", "y"]].to_numpy()
+    near = cKDTree(xy).query_pairs(r=radius_m, output_type="ndarray")
+
+    positions = pd.DataFrame(
+        {"i": np.arange(len(platforms)), "station": platforms["parent_station"].to_numpy()}
+    ).dropna(subset=["station"])
+    same = positions.merge(positions, on="station", suffixes=("_from", "_to"))
+    same = same.loc[same["i_from"] < same["i_to"], ["i_from", "i_to"]].to_numpy()
+
+    pairs = np.unique(np.vstack([near, same]), axis=0)
+    pairs = np.vstack([pairs, pairs[:, ::-1]])
+    i, j = pairs[:, 0], pairs[:, 1]
+
+    stop_ids = platforms["stop_id"].to_numpy()
+    return pd.DataFrame(
+        {
+            "from_stop": stop_ids[i],
+            "to_stop": stop_ids[j],
+            "distance_m": np.hypot(xy[i, 0] - xy[j, 0], xy[i, 1] - xy[j, 1]),
+        }
+    )
