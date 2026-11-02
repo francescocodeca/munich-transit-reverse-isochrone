@@ -13,3 +13,7 @@ __pycache__/
 # Editors and OS
 .vscode/
 .DS_Store
+
+# Personal notes and Claude Code instructions (not versioned)
+CLAUDE.local.md
+notes/
