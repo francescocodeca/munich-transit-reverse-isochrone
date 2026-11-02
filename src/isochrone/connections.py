@@ -39,8 +39,10 @@ def build_connections(
         include_on_demand: If False, on-demand trips (FLEXlinie) are excluded.
 
     Returns:
-        DataFrame with columns trip_id, dep_stop, arr_stop, dep_time, arr_time, can_board
-        (boarding allowed at dep_stop) and can_alight (alighting allowed at arr_stop).
+        DataFrame with columns trip_id, dep_stop, arr_stop, stop_sequence (position of
+        dep_stop in the trip, used to order connections of one trip with equal times),
+        dep_time, arr_time, can_board (boarding allowed at dep_stop) and can_alight
+        (alighting allowed at arr_stop).
     """
     trips = active_trip_ids(feed_path, date)
     if not include_on_demand:
@@ -61,6 +63,7 @@ def build_connections(
             "trip_id": dep["trip_id"],
             "dep_stop": dep["stop_id"],
             "arr_stop": arr["stop_id"],
+            "stop_sequence": dep["stop_sequence"],
             "dep_time": gtfs_time_to_seconds(dep["departure_time"]),
             "arr_time": gtfs_time_to_seconds(arr["arrival_time"]),
             "can_board": dep["pickup_type"] != "1",
