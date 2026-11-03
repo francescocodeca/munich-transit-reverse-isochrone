@@ -4,12 +4,10 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from pyproj import Transformer
 from scipy.spatial import cKDTree
 
 from isochrone.gtfs import read_gtfs_table
-
-PROJECTED_CRS = "EPSG:25832"
+from isochrone.walking import to_projected, walking_time_s
 
 
 def load_platforms(feed_path: Path) -> pd.DataFrame:
@@ -32,11 +30,7 @@ def load_platforms(feed_path: Path) -> pd.DataFrame:
     )
     platforms = stops[stops["location_type"].fillna("0") == "0"]
 
-    to_metres = Transformer.from_crs("EPSG:4326", PROJECTED_CRS, always_xy=True)
-    x, y = to_metres.transform(
-        platforms["stop_lon"].astype("float64").to_numpy(),
-        platforms["stop_lat"].astype("float64").to_numpy(),
-    )
+    x, y = to_projected(platforms["stop_lon"], platforms["stop_lat"])
     return pd.DataFrame(
         {
             "stop_id": platforms["stop_id"].to_numpy(),
@@ -117,8 +111,7 @@ def build_transfers(
     platforms = load_platforms(feed_path)
     pairs = find_platform_pairs(platforms, radius_m)
 
-    walk_s = np.ceil(pairs["distance_m"].to_numpy() * detour_factor / walking_speed_mps)
-    walk_s = walk_s + margin_s
+    walk_s = walking_time_s(pairs["distance_m"], walking_speed_mps, detour_factor) + margin_s
     pairs["duration_s"] = np.maximum(walk_s, min_transfer_s).astype("int64")
 
     same_platform = pd.DataFrame(
