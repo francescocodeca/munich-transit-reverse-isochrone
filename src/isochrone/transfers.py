@@ -91,13 +91,15 @@ def build_transfers(
     radius_m: float = 400.0,
     min_transfer_s: int = 120,
     walking_speed_mps: float = 1.0,
+    detour_factor: float = 1.3,
     margin_s: int = 120,
 ) -> pd.DataFrame:
     """Return the walking transfers between platforms, with their durations.
 
     A transfer from a platform to itself takes min_transfer_s. A transfer between two distinct
-    platforms linked by find_platform_pairs takes the straight-line walking time plus margin_s,
-    and at least min_transfer_s. Walking times are rounded up to whole seconds.
+    platforms linked by find_platform_pairs takes the walking time plus margin_s, and at least
+    min_transfer_s. The walking time is the straight-line distance times detour_factor, at
+    walking_speed_mps, rounded up to whole seconds.
 
     Args:
         feed_path: Path of the GTFS ZIP file.
@@ -105,6 +107,7 @@ def build_transfers(
             stations.
         min_transfer_s: Minimum duration of any transfer, in seconds.
         walking_speed_mps: Walking speed in metres per second.
+        detour_factor: Ratio between the walking distance and the straight-line distance.
         margin_s: Extra time in seconds for a transfer between distinct platforms (getting off,
             stairs, finding the way).
 
@@ -114,7 +117,8 @@ def build_transfers(
     platforms = load_platforms(feed_path)
     pairs = find_platform_pairs(platforms, radius_m)
 
-    walk_s = np.ceil(pairs["distance_m"].to_numpy() / walking_speed_mps) + margin_s
+    walk_s = np.ceil(pairs["distance_m"].to_numpy() * detour_factor / walking_speed_mps)
+    walk_s = walk_s + margin_s
     pairs["duration_s"] = np.maximum(walk_s, min_transfer_s).astype("int64")
 
     same_platform = pd.DataFrame(
