@@ -86,7 +86,7 @@ def build_transfers(
     min_transfer_s: int = 120,
     walking_speed_mps: float = 1.0,
     detour_factor: float = 1.3,
-    margin_s: int = 120,
+    margin_s: int = 90,
 ) -> pd.DataFrame:
     """Return the walking transfers between platforms, with their durations.
 
