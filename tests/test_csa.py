@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from isochrone.csa import build_network, latest_departures
+from isochrone.csa import build_network, journey, latest_departures, scan_latest_departures
 
 
 def make_network():
@@ -59,3 +59,38 @@ def test_latest_departures_needs_targets():
     """Check that an empty set of targets is rejected."""
     with pytest.raises(ValueError):
         latest_departures(make_network(), {})
+
+
+@pytest.mark.parametrize(
+    "stop_id, expected_legs",
+    [
+        ("A", [("ride", "A", "D", 480, 500, "t1")]),
+        ("C", [("ride", "C", "B", 470, 486, "t2"), ("ride", "B", "D", 490, 500, "t1")]),
+        (
+            "H",
+            [
+                ("ride", "H", "Y", 470, 482, "t7"),
+                ("walk", "Y", "B", 482, 487, None),
+                ("ride", "B", "D", 490, 500, "t1"),
+            ],
+        ),
+    ],
+)
+def test_journey_synthetic(stop_id, expected_legs):
+    """Check the journeys rebuilt from A, C and H to D on the synthetic network."""
+    network = make_network()
+    scan = scan_latest_departures(network, {"D": 510 * 60})
+
+    columns = ["kind", "from_stop", "to_stop", "dep_time", "arr_time", "trip_id"]
+    expected = pd.DataFrame(expected_legs, columns=columns)
+    expected[["dep_time", "arr_time"]] *= 60
+    pd.testing.assert_frame_equal(journey(network, scan, stop_id), expected)
+
+
+@pytest.mark.parametrize("stop_id", ["D", "X"])
+def test_journey_unreachable(stop_id):
+    """Check that a stop from which no target can be reached is rejected."""
+    network = make_network()
+    scan = scan_latest_departures(network, {"D": 510 * 60})
+    with pytest.raises(ValueError):
+        journey(network, scan, stop_id)
