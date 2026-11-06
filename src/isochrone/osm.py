@@ -12,7 +12,7 @@ from scipy.sparse import csr_array
 from scipy.sparse.csgraph import connected_components, dijkstra
 from scipy.spatial import cKDTree
 
-from isochrone.walking import to_projected
+from isochrone.walking import to_projected, walking_time_s
 
 WALKABLE_HIGHWAYS = frozenset(
     {
@@ -246,3 +246,50 @@ def walking_distances(
             )
         )
     return pd.concat(parts, ignore_index=True)
+
+
+def find_nearby_platforms_on_network(
+    graph: WalkingGraph,
+    points_xy: np.ndarray,
+    platforms: pd.DataFrame,
+    max_distance_m: float = 1300.0,
+    walking_speed_mps: float = 1.0,
+) -> pd.DataFrame:
+    """Return, for each point, the platforms within max_distance_m on the pedestrian network.
+
+    Same output as find_nearby_platforms, with walking distances on the network (see
+    walking_distances) instead of straight-line distances, and no detour factor. Walking is
+    symmetric, so Dijkstra runs from the smaller of the two sets: from each point when there
+    are fewer points than platforms (e.g. a destination), otherwise from each platform.
+
+    Args:
+        graph: Pedestrian network, as returned by build_walking_graph.
+        points_xy: Coordinates of the points in metres in PROJECTED_CRS, with shape (n, 2);
+            a single point can be given with shape (2,).
+        platforms: DataFrame with columns stop_id, x and y, as returned by load_platforms.
+        max_distance_m: Maximum walking distance in metres between a point and a platform.
+        walking_speed_mps: Walking speed in metres per second.
+
+    Returns:
+        DataFrame with columns point (row of points_xy), stop_id, distance_m (on the network,
+        metres) and walk_s (integer seconds), sorted by point and distance. Points with no
+        platform within max_distance_m do not appear.
+    """
+    points_xy = np.atleast_2d(points_xy)
+    platforms_xy = platforms[["x", "y"]].to_numpy()
+    if len(points_xy) <= len(platforms_xy):
+        pairs = walking_distances(graph, points_xy, platforms_xy, max_distance_m)
+        point, platform = pairs["source"], pairs["target"]
+    else:
+        pairs = walking_distances(graph, platforms_xy, points_xy, max_distance_m)
+        point, platform = pairs["target"], pairs["source"]
+
+    nearby = pd.DataFrame(
+        {
+            "point": point.to_numpy(),
+            "stop_id": platforms["stop_id"].to_numpy()[platform],
+            "distance_m": pairs["distance_m"].to_numpy(),
+        }
+    )
+    nearby["walk_s"] = walking_time_s(nearby["distance_m"], walking_speed_mps, detour_factor=1.0)
+    return nearby.sort_values(["point", "distance_m"], ignore_index=True)
