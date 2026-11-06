@@ -52,28 +52,25 @@ def test_find_nearby_platforms_accepts_a_single_point():
 
 
 def test_latest_departures_from_points_keeps_the_best_of_platforms_and_direct_walk():
-    """Best platform, direct walk when faster, walk-only within max_duration_s, else NaN."""
-    points_xy = np.array([[5000.0, 0.0], [100.0, 0.0], [9000.0, 0.0], [0.0, 7000.0]])
+    """Best platform, faster direct walk, walk-only within max_duration_s, NaN direct walk."""
     access = pd.DataFrame(
         {
-            "point": [0, 0, 1, 2],
-            "stop_id": ["A", "B", "B", "C"],
-            "walk_s": [100, 300, 50, 10],
+            "point": [0, 0, 1, 2, 4],
+            "stop_id": ["A", "B", "B", "C", "B"],
+            "walk_s": [100, 300, 50, 10, 0],
         }
     )
     departures = {"A": 30000, "B": 31000}
 
     latest = latest_departures_from_points(
-        points_xy,
         access,
         departures,
-        destination_xy=np.array([0.0, 0.0]),
+        direct_walk_s=np.array([5000.0, 100.0, 9000.0, 7000.0, np.nan]),
         arrival_s=32400,
         max_duration_s=7200,
-        detour_factor=1.0,
     )
 
-    np.testing.assert_array_equal(latest, [30700.0, 32300.0, np.nan, 25400.0])
+    np.testing.assert_array_equal(latest, [30700.0, 32300.0, np.nan, 25400.0, 31000.0])
 
 
 def test_build_grid_keeps_aligned_points_within_radius():

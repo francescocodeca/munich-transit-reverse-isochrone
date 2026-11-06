@@ -89,46 +89,40 @@ def find_nearby_platforms(
 
 
 def latest_departures_from_points(
-    points_xy: np.ndarray,
     access: pd.DataFrame,
     departures: dict[str, int],
-    destination_xy: np.ndarray,
+    direct_walk_s: np.ndarray,
     arrival_s: int,
     max_duration_s: int = 7200,
-    walking_speed_mps: float = 1.0,
-    detour_factor: float = 1.3,
 ) -> np.ndarray:
     """Return, for each point, the latest departure that reaches the destination in time.
 
     A point can walk to a nearby platform and continue by public transport, or walk directly
     to the destination; the latest of these departures is kept. Journeys longer than
-    max_duration_s count as not reaching the destination.
+    max_duration_s count as not reaching the destination. The walking times are inputs, so
+    that the same function serves straight-line and street-network walks.
 
     Args:
-        points_xy: Coordinates of the points in metres in PROJECTED_CRS, with shape (n, 2).
-        access: Walking legs from the points to nearby platforms, as returned by
-            find_nearby_platforms for points_xy.
+        access: Walking legs from the points to nearby platforms, with columns point (index
+            in direct_walk_s), stop_id and walk_s, as returned by find_nearby_platforms.
         departures: Latest departure from each platform, as returned by latest_departures.
-        destination_xy: Coordinates of the destination in metres, with shape (2,).
+        direct_walk_s: Walking time in seconds from each point directly to the destination,
+            with shape (n,); NaN for points with no direct walk.
         arrival_s: Latest arrival time at the destination, seconds after midnight.
         max_duration_s: Maximum duration of a journey in seconds.
-        walking_speed_mps: Walking speed in metres per second.
-        detour_factor: Ratio between the walking distance and the straight-line distance.
 
     Returns:
         Latest departure time from each point, seconds after midnight, as a float array of
         length n; NaN for points that cannot reach the destination within max_duration_s.
     """
-    points_xy = np.atleast_2d(points_xy)
+    direct_walk_s = np.atleast_1d(np.asarray(direct_walk_s, dtype="float64"))
 
     via_platform = access["stop_id"].map(departures) - access["walk_s"]
     best_via_platform = via_platform.groupby(access["point"]).max()
-    latest = np.full(len(points_xy), np.nan)
+    latest = np.full(len(direct_walk_s), np.nan)
     latest[best_via_platform.index.to_numpy()] = best_via_platform.to_numpy()
 
-    direct_m = np.hypot(*(points_xy - np.asarray(destination_xy)).T)
-    direct = arrival_s - walking_time_s(direct_m, walking_speed_mps, detour_factor)
-    latest = np.fmax(latest, direct)
+    latest = np.fmax(latest, arrival_s - direct_walk_s)
 
     latest[latest < arrival_s - max_duration_s] = np.nan
     return latest
