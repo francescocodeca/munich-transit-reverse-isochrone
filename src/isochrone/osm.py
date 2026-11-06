@@ -1,4 +1,4 @@
-"""Build the pedestrian network from an OpenStreetMap extract."""
+"""Build the pedestrian network from an OpenStreetMap extract and compute walking distances."""
 
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -6,8 +6,10 @@ from pathlib import Path
 
 import numpy as np
 import osmium
+import pandas as pd
+import shapely
 from scipy.sparse import csr_array
-from scipy.sparse.csgraph import connected_components
+from scipy.sparse.csgraph import connected_components, dijkstra
 from scipy.spatial import cKDTree
 
 from isochrone.walking import to_projected
@@ -173,3 +175,74 @@ def snap_to_graph(
     tree = cKDTree(np.column_stack([graph.x[main_nodes], graph.y[main_nodes]]))
     distance, nearest = tree.query(np.column_stack([x, y]))
     return main_nodes[nearest], distance
+
+
+def read_poly(poly_path: Path) -> shapely.Geometry:
+    """Read an Osmosis polygon file, such as the .poly that Geofabrik publishes with an extract.
+
+    The file has a name line, then sections made of a name line, one "lon lat" line per vertex
+    and an END line, then a final END line. Sections whose name starts with "!" are holes and
+    are subtracted from the union of the other sections.
+
+    Args:
+        poly_path: Path to the .poly file.
+
+    Returns:
+        The area covered by the file, in longitude and latitude (WGS 84).
+    """
+    lines = [line.strip() for line in poly_path.read_text().splitlines() if line.strip()]
+    areas, holes = [], []
+    i = 1
+    while lines[i] != "END":
+        name = lines[i]
+        i += 1
+        ring = []
+        while lines[i] != "END":
+            lon, lat = lines[i].split()
+            ring.append((float(lon), float(lat)))
+            i += 1
+        i += 1
+        (holes if name.startswith("!") else areas).append(shapely.Polygon(ring))
+    return shapely.difference(shapely.union_all(areas), shapely.union_all(holes))
+
+
+def walking_distances(
+    graph: WalkingGraph,
+    source_xy: np.ndarray,
+    target_xy: np.ndarray,
+    max_distance_m: float = 1300.0,
+    batch_size: int = 20,
+) -> pd.DataFrame:
+    """Return the walking distance of every pair of a source and a target within a limit.
+
+    Each point is snapped to the main component of the graph (see snap_to_graph). The distance
+    is: straight line from the source to its node, shortest path on the graph, straight line
+    from the target's node to the target. The graph is undirected, so the distance is the
+    same in both directions.
+
+    Args:
+        graph: Pedestrian network, as returned by build_walking_graph.
+        source_xy: Array of shape (n, 2) with the source coordinates in PROJECTED_CRS.
+        target_xy: Array of shape (m, 2) with the target coordinates in PROJECTED_CRS.
+        max_distance_m: Pairs farther apart than this, in metres, are left out.
+        batch_size: Number of sources per call of Dijkstra, which allocates a dense row of
+            one value per graph node for each source; it limits memory use.
+
+    Returns:
+        DataFrame with one row per pair within max_distance_m and columns source and target
+        (row positions in source_xy and target_xy) and distance_m.
+    """
+    source_node, source_snap = snap_to_graph(graph, source_xy[:, 0], source_xy[:, 1])
+    target_node, target_snap = snap_to_graph(graph, target_xy[:, 0], target_xy[:, 1])
+    parts = []
+    for start in range(0, len(source_node), batch_size):
+        batch = np.arange(start, min(start + batch_size, len(source_node)))
+        on_graph = dijkstra(graph.lengths, indices=source_node[batch], limit=max_distance_m)
+        total = source_snap[batch, None] + on_graph[:, target_node] + target_snap
+        row, target = np.nonzero(total <= max_distance_m)
+        parts.append(
+            pd.DataFrame(
+                {"source": batch[row], "target": target, "distance_m": total[row, target]}
+            )
+        )
+    return pd.concat(parts, ignore_index=True)
