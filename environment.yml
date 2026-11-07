@@ -9,6 +9,7 @@ dependencies:
   - scipy
   - shapely
   - folium
+  - geopandas
   - pyosmium
   - r5py>=1.1
   - pytest
