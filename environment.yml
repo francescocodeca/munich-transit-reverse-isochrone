@@ -10,5 +10,6 @@ dependencies:
   - shapely
   - folium
   - pyosmium
+  - r5py>=1.1
   - pytest
   - ipykernel
