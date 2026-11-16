@@ -95,7 +95,8 @@ def isochrone_map(
     (longest times), at equal steps, so that every band is equally distinguishable from its
     neighbours whatever its width in minutes. The opacity decreases at equal steps from the
     first to the last band, so that the large outer bands do not hide the base map. Bands
-    listed in style_overrides take the given colour and opacity instead.
+    listed in style_overrides take the given colour and opacity instead. The attribution in the
+    corner of the map credits OpenStreetMap and the MVV timetable, as their licences require.
 
     Args:
         bands: DataFrame as returned by band_polygons.
@@ -115,9 +116,15 @@ def isochrone_map(
     """
     lon, lat = destination_lonlat
     isochrones = folium.Map(location=[lat, lon], zoom_start=11, prefer_canvas=True, tiles=None)
-    folium.TileLayer("OpenStreetMap", className="grey-base" if grey_base else "").add_to(
-        isochrones
-    )
+    folium.TileLayer(
+        "OpenStreetMap",
+        attr=(
+            "&copy; <a href='https://www.openstreetmap.org/copyright'>OpenStreetMap</a>"
+            " contributors | Timetable: Münchner Verkehrs- und Tarifverbund GmbH (MVV),"
+            " <a href='https://creativecommons.org/licenses/by/4.0/'>CC BY 4.0</a>"
+        ),
+        className="grey-base" if grey_base else "",
+    ).add_to(isochrones)
     css = ".grey-base { filter: grayscale(100%) brightness(1.05); }"
     if multiply:
         css += " .leaflet-overlay-pane { mix-blend-mode: multiply; }"
