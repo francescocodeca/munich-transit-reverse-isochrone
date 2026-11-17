@@ -240,3 +240,9 @@ take about 25 seconds. The most recent feed and extract in `data/raw/` are used 
 - **Validation:** [r5py](https://r5py.readthedocs.io/) (Fink et al., 2022,
   [doi:10.5281/zenodo.7060437](https://doi.org/10.5281/zenodo.7060437)), a Python interface to
   Conveyal's [R5](https://github.com/conveyal/r5) routing engine.
+
+## License
+
+The code in this repository is released under the [MIT License](LICENSE). The data it uses,
+and the maps derived from them (including those in `docs/`), remain under the licences of
+their sources listed above.
