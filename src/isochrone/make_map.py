@@ -5,7 +5,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from isochrone.osm import WalkingGraph, find_nearby_platforms_on_network
+from isochrone.csa import Network, latest_departures
+from isochrone.osm import WalkingGraph, find_nearby_platforms_on_network, walking_distances
+from isochrone.walking import latest_departures_from_points, walking_time_s
 
 
 def load_or_compute_access(
@@ -55,3 +57,50 @@ def load_or_compute_access(
         walk_s=access["walk_s"].to_numpy(),
     )
     return access
+
+
+def travel_minutes(
+    graph: WalkingGraph,
+    grid: np.ndarray,
+    platforms: pd.DataFrame,
+    access: pd.DataFrame,
+    network: Network,
+    destination_xy: np.ndarray,
+    arrival_s: int,
+    max_duration_s: int = 7200,
+) -> np.ndarray:
+    """Return the travel time from each grid cell to the destination, arriving by arrival_s.
+
+    The travel time of a cell is the arrival time minus its latest departure: walk to a nearby
+    platform and continue by public transport, or walk directly to the destination. If no
+    platform is within walking distance of the destination, only the direct walk counts.
+
+    Args:
+        graph: Pedestrian network, as returned by build_walking_graph.
+        grid: Coordinates of the grid cells in metres in PROJECTED_CRS, with shape (n, 2).
+        platforms: DataFrame with columns stop_id, x and y, as returned by load_platforms.
+        access: Walking legs from the grid cells to nearby platforms, as returned by
+            load_or_compute_access.
+        network: Network of the service day, as returned by build_network.
+        destination_xy: Coordinates of the destination in metres in PROJECTED_CRS, shape (2,).
+        arrival_s: Latest arrival time at the destination, seconds after midnight.
+        max_duration_s: Maximum duration of a journey in seconds.
+
+    Returns:
+        Travel time in minutes for each grid cell, as a float array of length n; NaN for
+        cells that cannot reach the destination within max_duration_s.
+    """
+    egress = find_nearby_platforms_on_network(graph, destination_xy, platforms)
+    targets = dict(zip(egress["stop_id"], (arrival_s - egress["walk_s"]).tolist()))
+    departures = latest_departures(network, targets, max_duration_s) if targets else {}
+
+    direct = walking_distances(
+        graph, np.atleast_2d(destination_xy), grid, max_distance_m=float(max_duration_s)
+    )
+    direct_walk_s = np.full(len(grid), np.nan)
+    direct_walk_s[direct["target"]] = walking_time_s(direct["distance_m"], detour_factor=1.0)
+
+    latest = latest_departures_from_points(
+        access, departures, direct_walk_s, arrival_s, max_duration_s
+    )
+    return (arrival_s - latest) / 60
