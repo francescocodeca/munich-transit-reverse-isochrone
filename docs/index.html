@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reverse isochrones for Munich public transport</title>
+  <style>
+    body {
+      max-width: 42rem;
+      margin: 2rem auto;
+      padding: 0 1rem;
+      font-family: system-ui, sans-serif;
+      line-height: 1.5;
+      color: #222;
+    }
+    li { margin-bottom: 0.6rem; }
+    small { color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Reverse isochrones for Munich public transport</h1>
+  <p>
+    Each map answers one question: from where, and how late, can you leave to reach a place by a
+    given time, by public transport and on foot? Colours show the minutes needed from every
+    100&nbsp;m cell. All maps use the MVV timetable of Wednesday, 9 December 2026.
+  </p>
+
+  <h2>Maps</h2>
+  <ul>
+    <li>
+      <a href="garching_2026-12-09_0900.html">TUM Garching-Forschungszentrum</a>, arrival by 9:00
+    </li>
+    <li>
+      <a href="arcisstrasse_2026-12-09_0900.html">TUM main campus, Arcisstraße 21</a>,
+      arrival by 9:00
+    </li>
+    <li>
+      <a href="ottobrunn_2026-12-09_0900.html">TUM Campus Ottobrunn, Lise-Meitner-Straße 9</a>,
+      arrival by 9:00
+    </li>
+    <li>
+      <a href="olympia-schwimmhalle_2026-12-09_1900.html">Olympia-Schwimmhalle, Olympiapark</a>,
+      arrival by 19:00
+    </li>
+  </ul>
+
+  <h2>How accurate</h2>
+  <p>
+    The maps are indicative: travel times are usually within one 5-minute band of the MVV
+    journey planner, and errors tend to be optimistic. Transfers in large stations are estimated
+    from straight-line distances, and walks of up to 1300&nbsp;m to and from stops are allowed.
+    The Garching map was checked against the MVV app and r5py, the Arcisstraße map against the
+    MVV app; the Ottobrunn and evening maps only on single journeys (both 4–5 minutes
+    optimistic).
+  </p>
+
+  <p>
+    Method, validation and code:
+    <a href="https://github.com/francescocodeca/munich-transit-reverse-isochrone">GitHub
+    repository</a>.
+  </p>
+
+  <p><small>
+    Timetable: Münchner Verkehrs- und Tarifverbund GmbH (MVV),
+    <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.
+    Street network and base map: © OpenStreetMap contributors,
+    <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL 1.0</a>.
+  </small></p>
+</body>
+</html>

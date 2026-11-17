@@ -9,7 +9,9 @@ on time by public transport and on foot, and draws the result as a map.
 *Minutes needed to reach TUM Garching-Forschungszentrum by 9:00 on Wednesday, 9 December 2026.
 Bands are 5 minutes wide up to one hour.*
 
-[Open the interactive map](https://francescocodeca.github.io/munich-transit-reverse-isochrone/garching_2026-12-09_0900.html).
+[Open the interactive map](https://francescocodeca.github.io/munich-transit-reverse-isochrone/garching_2026-12-09_0900.html),
+or [see all maps](https://francescocodeca.github.io/munich-transit-reverse-isochrone/) (TUM
+main campus, TUM Ottobrunn, Olympia-Schwimmhalle).
 
 ## The problem
 
