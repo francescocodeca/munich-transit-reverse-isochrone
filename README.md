@@ -193,7 +193,7 @@ two 5-minute bands can move by one band.
 
 ```
 src/isochrone/   reusable code: download, GTFS reading, connections, transfers, CSA,
-                 walking (straight line and OSM), maps, r5py comparison
+                 walking (straight line and OSM), maps, r5py comparison, map command
 notebooks/       exploration and validation, in order (01 GTFS, 02 OSM and r5py)
 tests/           pytest suite
 data/            downloaded and generated files, not versioned
@@ -212,8 +212,18 @@ pytest
 The download is about 280 MB. Tests that need the real feed are skipped if it is missing, so
 the suite also runs without data. r5py needs Java 21 or later, which conda installs with it.
 
-Making a map: for now the full pipeline runs in `notebooks/02_explore_osm.ipynb`, cells 0–4
-(destination, date and arrival time are set in cell 4).
+Making a map: give the destination in latitude and longitude, a date within the feed and the
+latest arrival time.
+
+```bash
+python -m isochrone.make_map --lat 48.2649 --lon 11.6712 --date 2026-12-09 --arrival 09:00
+```
+
+The map is saved as an HTML file in `data/maps/` (or at `--output`). The first run computes
+the walking legs from every grid cell to the nearby platforms on the street network (about
+3 minutes) and caches them in `data/processed/`; later runs with the same feed and OSM extract
+take about 25 seconds. The most recent feed and extract in `data/raw/` are used unless
+`--feed` and `--osm` are given; `python -m isochrone.make_map --help` lists the options.
 
 ## Data sources and licences
 
