@@ -1,5 +1,7 @@
 """Command-line entry point that draws an isochrone map for one destination and arrival."""
 
+import argparse
+import datetime as dt
 from pathlib import Path
 
 import numpy as np
@@ -104,3 +106,48 @@ def travel_minutes(
         access, departures, direct_walk_s, arrival_s, max_duration_s
     )
     return (arrival_s - latest) / 60
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Read the command-line arguments.
+
+    Args:
+        argv: Arguments without the program name; None reads them from sys.argv.
+
+    Returns:
+        Namespace with attributes lat, lon (float), date (datetime.date), arrival
+        (datetime.time), and feed, osm and output (Path, or None when not given).
+    """
+    parser = argparse.ArgumentParser(
+        prog="python -m isochrone.make_map",
+        description="Draw a map of the travel time by public transport and on foot to a "
+        "destination in the Munich area, arriving by a given time.",
+    )
+    parser.add_argument("--lat", type=float, required=True, help="destination latitude")
+    parser.add_argument("--lon", type=float, required=True, help="destination longitude")
+    parser.add_argument(
+        "--date",
+        type=dt.date.fromisoformat,
+        required=True,
+        metavar="YYYY-MM-DD",
+        help="service day",
+    )
+    parser.add_argument(
+        "--arrival",
+        type=dt.time.fromisoformat,
+        required=True,
+        metavar="HH:MM",
+        help="latest arrival time at the destination",
+    )
+    parser.add_argument(
+        "--feed", type=Path, help="GTFS feed (default: the most recent in data/raw)"
+    )
+    parser.add_argument(
+        "--osm",
+        type=Path,
+        help="OpenStreetMap .osm.pbf extract (default: the most recent in data/raw)",
+    )
+    parser.add_argument(
+        "--output", type=Path, help="HTML file (default: a name from the arguments, in data/maps)"
+    )
+    return parser.parse_args(argv)

@@ -77,6 +77,40 @@ def active_trip_ids(feed_path: Path, date: dt.date) -> set[str]:
     return set(trips.loc[trips["service_id"].isin(services), "trip_id"])
 
 
+def feed_period(feed_path: Path) -> tuple[dt.date, dt.date]:
+    """Return the first and last date that appear in the service calendar of a feed.
+
+    The dates come from calendar.txt (start_date, end_date) and calendar_dates.txt (date),
+    the same tables that active_service_ids reads; a feed must contain at least one of them.
+    feed_info.txt is not used: it is optional in GTFS, and so are its dates.
+
+    Args:
+        feed_path: Path of the GTFS ZIP file.
+
+    Returns:
+        The first and the last date of the feed.
+
+    Raises:
+        ValueError: If neither table contains a date.
+    """
+    with zipfile.ZipFile(feed_path) as feed:
+        names = set(feed.namelist())
+    dates = []
+    if "calendar.txt" in names:
+        calendar = read_gtfs_table(feed_path, "calendar", usecols=["start_date", "end_date"])
+        dates += [calendar["start_date"], calendar["end_date"]]
+    if "calendar_dates.txt" in names:
+        dates.append(read_gtfs_table(feed_path, "calendar_dates", usecols=["date"])["date"])
+
+    all_dates = pd.concat(dates) if dates else pd.Series(dtype=str)
+    if all_dates.empty:
+        raise ValueError(f"no service dates in {feed_path}")
+    return (
+        dt.datetime.strptime(all_dates.min(), "%Y%m%d").date(),
+        dt.datetime.strptime(all_dates.max(), "%Y%m%d").date(),
+    )
+
+
 def on_demand_trip_ids(feed_path: Path) -> set[str]:
     """Return the trip_id values of on-demand services (MVV FLEXlinie).
 
