@@ -4,10 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 import shapely
-from scipy.sparse import csr_array
 
 from isochrone.osm import (
-    WalkingGraph,
     build_walking_graph,
     find_nearby_platforms_on_network,
     is_walkable,
@@ -44,21 +42,6 @@ from isochrone.walking import to_projected
 def test_is_walkable(tags, expected):
     """Check the walking rules on hand-written tags."""
     assert is_walkable(tags) == expected
-
-
-@pytest.fixture
-def small_graph():
-    """Path 0-1-2-3 along the x axis (100 m edges) and a separate edge 4-5 near node 1."""
-    x = np.array([0.0, 100.0, 200.0, 300.0, 150.0, 160.0])
-    y = np.array([0.0, 0.0, 0.0, 0.0, 30.0, 30.0])
-    u = np.array([0, 1, 2, 4])
-    v = np.array([1, 2, 3, 5])
-    length = np.hypot(x[u] - x[v], y[u] - y[v])
-    lengths = csr_array(
-        (np.concatenate([length, length]), (np.concatenate([u, v]), np.concatenate([v, u]))),
-        shape=(6, 6),
-    )
-    return WalkingGraph(np.arange(10, 16), x, y, lengths)
 
 
 def test_snap_to_graph(small_graph):
