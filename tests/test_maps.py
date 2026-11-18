@@ -1,11 +1,15 @@
 """Tests for the isochrone bands and their map."""
 
+import html
+import json
+import re
+
 import folium
 import numpy as np
 import shapely
 from pyproj import Transformer
 
-from isochrone.maps import band_polygons, isochrone_map
+from isochrone.maps import band_polygons, isochrone_map, threshold_control_html
 from isochrone.walking import PROJECTED_CRS
 
 
@@ -50,3 +54,21 @@ def test_isochrone_map_has_one_layer_per_band_with_distinct_colours():
     overrides = {10: ("#123456", 0.9)}
     overridden = styles_of(isochrone_map(bands, (11.58, 48.14), style_overrides=overrides))
     assert overridden[1] == {"fillColor": "#123456", "fillOpacity": 0.9, "weight": 0}
+
+
+def test_threshold_control_html_passes_bands_and_starts_at_default():
+    """The bands reach the script as JSON; the slider starts at the first limit >= default."""
+    control = threshold_control_html(
+        ["geo_json_a", "geo_json_b", "geo_json_c"],
+        [15.0, 30.0, 45.0],
+        ["#4B0A6E", "#1C4E8D", "#04B16F"],
+        [0.9, 0.8, 0.7],
+    )
+    data = re.search(r'data-bands="([^"]*)"', control).group(1)
+    bands = json.loads(html.unescape(data))
+    assert [band["name"] for band in bands] == ["geo_json_a", "geo_json_b", "geo_json_c"]
+    assert [band["high"] for band in bands] == [15.0, 30.0, 45.0]
+    assert 'max="2"' in control and 'value="1"' in control
+
+    short = threshold_control_html(["geo_json_a"], [10.0], ["#4B0A6E"], [0.9])
+    assert 'value="0"' in short

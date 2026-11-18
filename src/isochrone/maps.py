@@ -1,5 +1,8 @@
 """Turn travel times on the grid into isochrone bands and draw them on a map."""
 
+import html
+import json
+
 import folium
 import numpy as np
 import pandas as pd
@@ -98,6 +101,7 @@ def isochrone_map(
     first to the last band, so that the large outer bands do not hide the base map. Bands
     listed in style_overrides take the given colour and opacity instead. The attribution in the
     corner of the map credits OpenStreetMap and the MVV timetable, as their licences require.
+    A control below the legend switches to "within X minutes" (see threshold_control_html).
 
     Args:
         bands: DataFrame as returned by band_polygons.
@@ -140,9 +144,10 @@ def isochrone_map(
     for i, high_min in enumerate(bands["high_min"]):
         if high_min in overrides:
             colours[i], opacities[i] = overrides[high_min]
+    layer_names = []
     for colour, opacity, band in zip(colours, opacities, bands.itertuples()):
         label = f"{band.low_min:g}–{band.high_min:g} min"
-        folium.GeoJson(
+        layer = folium.GeoJson(
             band.geometry.__geo_interface__,
             name=label,
             style_function=lambda _, colour=colour, opacity=opacity: {
@@ -152,12 +157,17 @@ def isochrone_map(
             },
             tooltip=label,
         ).add_to(isochrones)
+        layer_names.append(layer.get_name())
 
     if n_bands > 0:
         limits = [*bands["low_min"], bands["high_min"].iloc[-1]]
         isochrones.get_root().html.add_child(
             folium.Element(legend_html(limits, colours, opacities, caption=caption))
         )
+        control = threshold_control_html(
+            layer_names, bands["high_min"].tolist(), colours, opacities
+        )
+        isochrones.get_root().html.add_child(folium.Element(control))
     folium.Marker([lat, lon], tooltip="Destination").add_to(isochrones)
     return isochrones
 
@@ -204,3 +214,75 @@ def legend_html(
         f'<div style="position: relative; height: 14px; margin-top: 2px;">{"".join(ticks)}</div>'
         "</div>"
     )
+
+
+def threshold_control_html(
+    layer_names: list[str],
+    high_mins: list[float],
+    colours: list[str],
+    opacities: list[float],
+    within_colour: str = "#E66100",
+    within_opacity: float = 0.5,
+    default_min: float = 30.0,
+) -> str:
+    """Return the HTML and JavaScript of a control that switches the map to "within X minutes".
+
+    In "bands" mode each band keeps its own colour and opacity. In "within" mode a slider picks
+    one of the band limits: the bands up to that limit take one uniform colour and the others
+    become transparent. The control only restyles the existing layers in the browser, so the
+    page needs no new polygons and no server.
+
+    Args:
+        layer_names: JavaScript variable name of each band layer, as given by get_name().
+        high_mins: Upper limit of each band in minutes, increasing.
+        colours: Hexadecimal colour of each band in "bands" mode.
+        opacities: Fill opacity of each band in "bands" mode.
+        within_colour: Hexadecimal colour of the bands within the limit in "within" mode.
+        within_opacity: Fill opacity of the bands within the limit in "within" mode.
+        default_min: Initial limit of the slider: the first band limit at or above it.
+
+    Returns:
+        HTML of a box fixed below the legend, followed by the script that drives it.
+    """
+    bands = [
+        {"name": name, "high": high, "colour": colour, "opacity": opacity}
+        for name, high, colour, opacity in zip(layer_names, high_mins, colours, opacities)
+    ]
+    within = {"colour": within_colour, "opacity": within_opacity}
+    start = next((k for k, high in enumerate(high_mins) if high >= default_min), len(bands) - 1)
+    box = (
+        '<div id="isochrone-threshold" style="position: fixed; top: 70px; right: 10px;'
+        " z-index: 1000; padding: 8px 14px; background: white; border-radius: 4px;"
+        ' box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); font: 11px sans-serif; color: #333;"'
+        f' data-bands="{html.escape(json.dumps(bands))}"'
+        f' data-within="{html.escape(json.dumps(within))}">'
+        '<label><input type="radio" name="isochrone-mode" value="bands" checked> Bands</label> '
+        '<label><input type="radio" name="isochrone-mode" value="within"> Within</label> '
+        f'<input type="range" min="0" max="{len(bands) - 1}" step="1" value="{start}"'
+        ' style="vertical-align: middle;"> <output></output>'
+        "</div>"
+    )
+    script = """<script>
+window.addEventListener("load", function () {
+  const box = document.getElementById("isochrone-threshold");
+  const bands = JSON.parse(box.dataset.bands);
+  const within = JSON.parse(box.dataset.within);
+  const slider = box.querySelector("input[type=range]");
+  const label = box.querySelector("output");
+  function update() {
+    const mode = box.querySelector("input[name=isochrone-mode]:checked").value;
+    const limit = bands[slider.value].high;
+    label.textContent = "\u2264 " + limit + " min";
+    slider.disabled = mode === "bands";
+    for (const band of bands) {
+      const style = mode === "bands"
+        ? {fillColor: band.colour, fillOpacity: band.opacity}
+        : {fillColor: within.colour, fillOpacity: band.high <= limit ? within.opacity : 0};
+      window[band.name].setStyle(style);
+    }
+  }
+  box.addEventListener("input", update);
+  update();
+});
+</script>"""
+    return box + script

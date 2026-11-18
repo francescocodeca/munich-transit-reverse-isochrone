@@ -125,7 +125,10 @@ Cells are grouped into 17 bands of travel time (5 minutes up to one hour, then 1
 minutes up to two hours), and the cells of each band are merged into one polygon with shapely.
 The polygons are drawn with folium on a grey OpenStreetMap base, blended in multiply mode so
 that streets and labels stay readable under the colours. One polygon per band keeps the page at
-a few megabytes; one shape per cell would be 16–40 MB and slow in the browser.
+a few megabytes; one shape per cell would be 16–40 MB and slow in the browser. A control under
+the legend switches to "within X minutes": a slider picks one of the band limits, and a few
+lines of JavaScript restyle the existing polygons (one uniform colour up to the limit,
+transparent beyond), so the page stays static and needs no recomputation.
 
 ### 6. Window of arrival times (`make_map.py`)
 
