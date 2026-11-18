@@ -89,14 +89,15 @@ def travel_minutes(
     access: pd.DataFrame,
     network: Network,
     destination_xy: np.ndarray,
-    arrival_s: int,
+    arrivals_s: list[int],
     max_duration_s: int = 7200,
 ) -> np.ndarray:
-    """Return the travel time from each grid cell to the destination, arriving by arrival_s.
+    """Return the travel time from each grid cell to the destination, for each arrival time.
 
     The travel time of a cell is the arrival time minus its latest departure: walk to a nearby
     platform and continue by public transport, or walk directly to the destination. If no
-    platform is within walking distance of the destination, only the direct walk counts.
+    platform is within walking distance of the destination, only the direct walk counts. The
+    walks from the destination do not depend on the arrival time, so they are computed once.
 
     Args:
         graph: Pedestrian network, as returned by build_walking_graph.
@@ -106,27 +107,49 @@ def travel_minutes(
             load_or_compute_access.
         network: Network of the service day, as returned by build_network.
         destination_xy: Coordinates of the destination in metres in PROJECTED_CRS, shape (2,).
-        arrival_s: Latest arrival time at the destination, seconds after midnight.
+        arrivals_s: Latest arrival times at the destination, seconds after midnight.
         max_duration_s: Maximum duration of a journey in seconds.
 
     Returns:
-        Travel time in minutes for each grid cell, as a float array of length n; NaN for
-        cells that cannot reach the destination within max_duration_s.
+        Travel time in minutes, as a float array of shape (len(arrivals_s), n): row i for
+        arrivals_s[i]; NaN for cells that cannot reach the destination within max_duration_s.
     """
     egress = find_nearby_platforms_on_network(graph, destination_xy, platforms)
-    targets = dict(zip(egress["stop_id"], (arrival_s - egress["walk_s"]).tolist()))
-    departures = latest_departures(network, targets, max_duration_s) if targets else {}
-
     direct = walking_distances(
         graph, np.atleast_2d(destination_xy), grid, max_distance_m=float(max_duration_s)
     )
     direct_walk_s = np.full(len(grid), np.nan)
     direct_walk_s[direct["target"]] = walking_time_s(direct["distance_m"], detour_factor=1.0)
 
-    latest = latest_departures_from_points(
-        access, departures, direct_walk_s, arrival_s, max_duration_s
-    )
-    return (arrival_s - latest) / 60
+    minutes = np.full((len(arrivals_s), len(grid)), np.nan)
+    for i, arrival_s in enumerate(arrivals_s):
+        targets = dict(zip(egress["stop_id"], (arrival_s - egress["walk_s"]).tolist()))
+        departures = latest_departures(network, targets, max_duration_s) if targets else {}
+        latest = latest_departures_from_points(
+            access, departures, direct_walk_s, arrival_s, max_duration_s
+        )
+        minutes[i] = (arrival_s - latest) / 60
+    return minutes
+
+
+def median_minutes(minutes: np.ndarray) -> np.ndarray:
+    """Return the median travel time of each grid cell over the arrival times.
+
+    A cell that cannot reach the destination for an arrival time counts as an infinitely long
+    journey, so the median is finite only if the cell is reached for more than half of the
+    arrival times.
+
+    Args:
+        minutes: Travel times in minutes with shape (m, n), as returned by travel_minutes; NaN
+            for cells that cannot reach the destination.
+
+    Returns:
+        Median travel time in minutes for each grid cell, as a float array of length n; NaN
+        for cells that are not reached for more than half of the arrival times.
+    """
+    durations = np.where(np.isnan(minutes), np.inf, minutes)
+    median = np.median(durations, axis=0)
+    return np.where(np.isinf(median), np.nan, median)
 
 
 def latest_raw_file(pattern: str) -> Path:
@@ -160,7 +183,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     Returns:
         Namespace with attributes lat, lon (float), date (datetime.date), arrival
-        (datetime.time), and feed, osm and output (Path, or None when not given).
+        (datetime.time), window (int, minutes), and feed, osm and output (Path, or None when
+        not given).
     """
     parser = argparse.ArgumentParser(
         prog="python -m isochrone.make_map",
@@ -184,6 +208,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="latest arrival time at the destination",
     )
     parser.add_argument(
+        "--window",
+        type=int,
+        default=0,
+        metavar="MIN",
+        help="width of a window of arrival times centred on --arrival, one per minute; the map "
+        "shows the median travel time (default: 0, only --arrival)",
+    )
+    parser.add_argument(
         "--feed", type=Path, help="GTFS feed (default: the most recent in data/raw)"
     )
     parser.add_argument(
@@ -202,7 +234,9 @@ def main(argv: list[str] | None = None) -> Path:
 
     The walking legs from the grid cells to the platforms are read from a cache in
     PROCESSED_DIR, named after the feed, the OpenStreetMap extract and the access radius; the
-    first run for a pair of files computes them (about 3 minutes).
+    first run for a pair of files computes them (about 3 minutes). With a window, the map shows
+    the median travel time over one arrival time per minute, from window // 2 minutes before
+    the arrival time to window // 2 minutes after.
 
     Args:
         argv: Arguments without the program name, as for parse_args.
@@ -211,10 +245,12 @@ def main(argv: list[str] | None = None) -> Path:
         Path of the HTML map.
 
     Raises:
-        SystemExit: If the date is outside the feed or the destination is outside the area of
-            the OpenStreetMap extract.
+        SystemExit: If the window is negative, the date is outside the feed or the destination
+            is outside the area of the OpenStreetMap extract.
     """
     args = parse_args(argv)
+    if args.window < 0:
+        raise SystemExit(f"the window must not be negative, got {args.window}")
     feed_path = args.feed or latest_raw_file("mvv_gtfs_*.zip")
     osm_path = args.osm or latest_raw_file("*.osm.pbf")
     area_name = osm_path.name.removesuffix(".osm.pbf")
@@ -240,10 +276,18 @@ def main(argv: list[str] | None = None) -> Path:
     network = build_network(build_connections(feed_path, args.date), build_transfers(feed_path))
 
     arrival_s = args.arrival.hour * 3600 + args.arrival.minute * 60 + args.arrival.second
-    minutes = travel_minutes(graph, grid, platforms, access, network, destination_xy, arrival_s)
+    half_window = args.window // 2
+    arrivals_s = [arrival_s + 60 * k for k in range(-half_window, half_window + 1)]
+    minutes = median_minutes(
+        travel_minutes(graph, grid, platforms, access, network, destination_xy, arrivals_s)
+    )
     print(f"{np.isfinite(minutes).sum()} of {len(grid)} grid cells reach the destination")
 
-    map_name = f"isochrone_{args.lat:.4f}_{args.lon:.4f}_{args.date}_{args.arrival:%H%M}.html"
+    window_suffix = f"_w{args.window}" if args.window else ""
+    map_name = (
+        f"isochrone_{args.lat:.4f}_{args.lon:.4f}_{args.date}_{args.arrival:%H%M}"
+        f"{window_suffix}.html"
+    )
     output = args.output or MAPS_DIR / map_name
     output.parent.mkdir(parents=True, exist_ok=True)
     isochrone_map(band_polygons(grid, minutes), (args.lon, args.lat)).save(output)

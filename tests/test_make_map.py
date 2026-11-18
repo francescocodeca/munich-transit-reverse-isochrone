@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from isochrone.csa import build_network
-from isochrone.make_map import load_or_compute_access, travel_minutes
+from isochrone.make_map import load_or_compute_access, median_minutes, travel_minutes
 from isochrone.osm import find_nearby_platforms_on_network
 
 
@@ -41,16 +41,22 @@ def one_trip_network():
 
 
 def test_travel_minutes(small_graph):
-    """Cells near P take the trip; the destination cell walks; a far cell is not reached."""
+    """Cells near P take the trip; the destination cell walks; a far cell is not reached.
+
+    Arriving by 08:02 instead of 08:01, the cell 100 m from P walks to the destination (200 s)
+    instead of taking the 08:00 trip.
+    """
     platforms = pd.DataFrame({"stop_id": ["P", "Q"], "x": [0.0, 300.0], "y": [0.0, 0.0]})
     grid = np.array([[0.0, 0.0], [100.0, 0.0], [300.0, 0.0], [0.0, -8000.0]])
     access = find_nearby_platforms_on_network(small_graph, grid, platforms)
     destination = np.array([300.0, 0.0])
 
     minutes = travel_minutes(
-        small_graph, grid, platforms, access, one_trip_network(), destination, 28860
+        small_graph, grid, platforms, access, one_trip_network(), destination, [28860, 28920]
     )
-    np.testing.assert_allclose(minutes, [1.0, 160 / 60, 0.0, np.nan])
+    np.testing.assert_allclose(
+        minutes, [[1.0, 160 / 60, 0.0, np.nan], [2.0, 200 / 60, 0.0, np.nan]]
+    )
 
 
 def test_travel_minutes_without_platforms_near_destination(small_graph):
@@ -61,6 +67,15 @@ def test_travel_minutes_without_platforms_near_destination(small_graph):
     destination = np.array([300.0, 0.0])
 
     minutes = travel_minutes(
-        small_graph, grid, platforms, access, one_trip_network(), destination, 28860
+        small_graph, grid, platforms, access, one_trip_network(), destination, [28860]
     )
-    np.testing.assert_allclose(minutes, [5.0, 200 / 60, 0.0])
+    np.testing.assert_allclose(minutes, [[5.0, 200 / 60, 0.0]])
+
+
+def test_median_minutes():
+    """A cell needs more than half of the arrival times to have a median; NaN counts as +inf."""
+    minutes = np.array(
+        [[10.0, 5.0, np.nan, np.nan], [20.0, np.nan, 7.0, np.nan], [30.0, np.nan, 9.0, np.nan]]
+    )
+    np.testing.assert_allclose(median_minutes(minutes), [20.0, np.nan, 9.0, np.nan])
+    np.testing.assert_allclose(median_minutes(minutes[:2]), [15.0, np.nan, np.nan, np.nan])
