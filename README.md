@@ -11,7 +11,9 @@ Bands are 5 minutes wide up to one hour.*
 
 [Open the interactive map](https://francescocodeca.github.io/munich-transit-reverse-isochrone/garching_2026-12-09_0900.html),
 or [see all maps](https://francescocodeca.github.io/munich-transit-reverse-isochrone/) (TUM
-main campus, TUM Ottobrunn, Olympia-Schwimmhalle).
+main campus, TUM Ottobrunn, Olympia-Schwimmhalle, and Garching on a
+[typical day](https://francescocodeca.github.io/munich-transit-reverse-isochrone/garching_2026-12-09_0900_w60.html)
+around 9:00).
 
 ## The problem
 
@@ -29,7 +31,8 @@ whole map.
 
 ## Method
 
-The pipeline has five steps, each in its own module under `src/isochrone/`.
+The pipeline has five steps, each in its own module under `src/isochrone/`, and an optional
+sixth that repeats the scan over a window of arrival times.
 
 ### 1. Connections from the timetable (`connections.py`)
 
@@ -124,6 +127,35 @@ The polygons are drawn with folium on a grey OpenStreetMap base, blended in mult
 that streets and labels stay readable under the colours. One polygon per band keeps the page at
 a few megabytes; one shape per cell would be 16–40 MB and slow in the browser.
 
+### 6. Window of arrival times (`make_map.py`)
+
+A map for one arrival time answers "I must be there at 9:00 sharp", and the answer can change
+from one minute to the next: if the last line before D runs every 5 minutes, arriving by 8:58
+instead of 9:00 can mean taking the previous train. For questions such as where to live, the
+typical travel time around 9:00 matters more.
+
+With `--window 60`, the scan is repeated for every minute from 8:30 to 9:30 (61 arrival times)
+and each cell shows its median travel time. A minute in which a cell cannot arrive within
+2 hours counts as an infinitely long journey, so a cell is on the map only if it arrives in more
+than half of the minutes. The walks from the destination do not depend on the arrival time and
+are computed once; each extra minute costs one scan and one maximum over the access legs (about
+0.4 s), so the whole window adds about 25 seconds.
+
+For Garching, on the 199,081 cells present in both maps:
+
+- 57.6% stay in the same band, 28.3% move one band slower, 10.2% one band faster, and 3.9% two
+  or more bands.
+- The median cell takes 2 minutes longer than at 9:00. The 9:00 map is not wrong at random:
+  almost every journey ends on the U6, which reaches Garching-Forschungszentrum at 8:59, so
+  9:00 is a lucky minute for all of them at once.
+- Single places move more. Dachau takes 55 minutes at 9:00 but 65 on a typical arrival; for
+  Freising, where 9:00 falls badly for its trains and buses, it is the other way round (49 and
+  40 minutes).
+
+The window should be at least as long as the gap between departures of the lines used,
+otherwise the median depends on where the window falls: with a 20-minute window, 31.5% of the
+cells differ by 5 minutes or more from the 60-minute one.
+
 ## Validation
 
 The model was checked against two independent references, both for a 9:00 arrival on
@@ -187,8 +219,9 @@ two 5-minute bands can move by one band.
   stop, cells that could reach it only on foot are missing.
 
 **Map**
-- The result is for one day and one arrival time. A different minute can give a different
-  map; a distribution over a time window (median, percentiles) would be more robust.
+- The result is for one service day. A single arrival time can be a lucky or unlucky minute for
+  the lines near the destination; the median over a window (`--window`) removes most of this
+  effect, but a window longer than one hour mixes peak and off-peak timetables.
 - The grid ends at the boundary of the Upper Bavaria extract (about 38 km from the centre in some
   directions).
 
@@ -227,6 +260,9 @@ the walking legs from every grid cell to the nearby platforms on the street netw
 3 minutes) and caches them in `data/processed/`; later runs with the same feed and OSM extract
 take about 25 seconds. The most recent feed and extract in `data/raw/` are used unless
 `--feed` and `--osm` are given; `python -m isochrone.make_map --help` lists the options.
+
+With `--window 60`, the map shows the median travel time over one arrival time per minute from
+30 minutes before to 30 minutes after `--arrival` (about 25 seconds more).
 
 ## Data sources and licences
 

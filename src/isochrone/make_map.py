@@ -290,7 +290,15 @@ def main(argv: list[str] | None = None) -> Path:
     )
     output = args.output or MAPS_DIR / map_name
     output.parent.mkdir(parents=True, exist_ok=True)
-    isochrone_map(band_polygons(grid, minutes), (args.lon, args.lat)).save(output)
+    first_s, last_s = arrivals_s[0], arrivals_s[-1]
+    caption = (
+        f"Median travel time, arriving {first_s // 3600}:{first_s % 3600 // 60:02d}–"
+        f"{last_s // 3600}:{last_s % 3600 // 60:02d} (min)"
+        if args.window
+        else "Travel time (min)"
+    )
+    bands = band_polygons(grid, minutes)
+    isochrone_map(bands, (args.lon, args.lat), caption=caption).save(output)
     print(f"map saved to {output}")
     return output
 

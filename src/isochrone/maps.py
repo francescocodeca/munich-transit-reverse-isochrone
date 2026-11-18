@@ -88,6 +88,7 @@ def isochrone_map(
     style_overrides: dict[float, tuple[str, float]] | None = None,
     grey_base: bool = True,
     multiply: bool = True,
+    caption: str = "Travel time (min)",
 ) -> folium.Map:
     """Draw the isochrone bands on an interactive map centred on the destination.
 
@@ -110,6 +111,7 @@ def isochrone_map(
             colours do not mix with those of the bands.
         multiply: Whether to blend the bands with the base map in multiply mode, so that dark
             roads and labels of the base map stay visible under opaque bands.
+        caption: Text written above the legend.
 
     Returns:
         A folium Map with one layer per band, a legend and a marker on the destination.
@@ -154,7 +156,7 @@ def isochrone_map(
     if n_bands > 0:
         limits = [*bands["low_min"], bands["high_min"].iloc[-1]]
         isochrones.get_root().html.add_child(
-            folium.Element(legend_html(limits, colours, opacities))
+            folium.Element(legend_html(limits, colours, opacities, caption=caption))
         )
     folium.Marker([lat, lon], tooltip="Destination").add_to(isochrones)
     return isochrones
