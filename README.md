@@ -13,7 +13,10 @@ Bands are 5 minutes wide up to one hour.*
 or [see all maps](https://francescocodeca.github.io/munich-transit-reverse-isochrone/) (TUM
 main campus, TUM Ottobrunn, Olympia-Schwimmhalle, and Garching on a
 [typical day](https://francescocodeca.github.io/munich-transit-reverse-isochrone/garching_2026-12-09_0900_w60.html)
-around 9:00).
+around 9:00). A
+[combined map](https://francescocodeca.github.io/munich-transit-reverse-isochrone/garching-schwimmhalle_2026-12-09_w60.html)
+shows where both Garching (around 9:00) and the Olympia-Schwimmhalle (around 19:00) are within
+reach, with one slider for each.
 
 ## The problem
 
@@ -159,6 +162,33 @@ The window should be at least as long as the gap between departures of the lines
 otherwise the median depends on where the window falls: with a 20-minute window, 31.5% of the
 cells differ by 5 minutes or more from the 60-minute one.
 
+### 7. Two destinations (`make_pair_map.py`)
+
+Looking for a flat usually means two places: work in the morning, something else in the
+evening. The combined map shows the cells from which the first destination can be reached
+within X minutes and the second within Y minutes, with X and Y set by two sliders.
+
+The set {t₁ ≤ X} ∩ {t₂ ≤ Y} is a union of pieces of a fixed partition: the pairs (band to the
+first destination, band to the second). Each pair present on the grid is merged into one
+polygon, and the sliders only switch pairs on and off in the browser, as in the "within" mode.
+For TUM Garching around 9:00 and the Olympia-Schwimmhalle around 19:00 (median over 60 minutes
+each), 159,022 cells reach both destinations, in 166 of the 289 possible pairs; the page is
+4.3 MB and the command takes about 75 seconds.
+
+The two destinations are 10 km apart and not on the same line, so the area that reaches both
+quickly is small:
+
+| Garching ≤ \ pool ≤ | 30 min | 45 min | 60 min |
+|---|---|---|---|
+| **30 min** | 0.1 km² | 3.0 km² | 10.0 km² |
+| **45 min** | 4.4 km² | 29.9 km² | 59.0 km² |
+| **60 min** | 8.3 km² | 55.9 km² | 151.0 km² |
+
+At 45 and 45 minutes it is a strip from Schwabing to Lehel along the U6 and the U3, the two
+lines that serve the destinations. Both journeys start from home: the map does not cover going
+to the pool straight from Garching, nor the journey back in the evening, which would need a
+forward scan (earliest arrival) instead of a reverse one.
+
 ## Validation
 
 The model was checked against two independent references, both for a 9:00 arrival on
@@ -232,7 +262,7 @@ two 5-minute bands can move by one band.
 
 ```
 src/isochrone/   reusable code: download, GTFS reading, connections, transfers, CSA,
-                 walking (straight line and OSM), maps, r5py comparison, map command
+                 walking (straight line and OSM), maps, r5py comparison, map commands
 notebooks/       exploration and validation, in order (01 GTFS, 02 OSM and r5py)
 tests/           pytest suite
 data/            downloaded and generated files, not versioned
@@ -266,6 +296,15 @@ take about 25 seconds. The most recent feed and extract in `data/raw/` are used 
 
 With `--window 60`, the map shows the median travel time over one arrival time per minute from
 30 minutes before to 30 minutes after `--arrival` (about 25 seconds more).
+
+The map of two destinations takes each of them as name, latitude, longitude and arrival time,
+and uses a 60-minute window by default (`--window 0` for the arrival times only):
+
+```bash
+python -m isochrone.make_pair_map --date 2026-12-09 \
+    --dest "TUM Garching,48.2649,11.6712,09:00" \
+    --dest "Olympia-Schwimmhalle,48.1736,11.5514,19:00"
+```
 
 ## Data sources and licences
 
