@@ -2,6 +2,7 @@
 
 import argparse
 import datetime as dt
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -175,6 +176,125 @@ def latest_raw_file(pattern: str) -> Path:
     return files[-1]
 
 
+@dataclass(frozen=True)
+class MapInputs:
+    """Everything a map needs that does not depend on the destination or the arrival time.
+
+    Attributes:
+        graph: Pedestrian network, as returned by build_walking_graph.
+        grid: Coordinates of the grid cells in metres in PROJECTED_CRS, with shape (n, 2),
+            restricted to the area of the OpenStreetMap extract.
+        platforms: DataFrame with columns stop_id, x and y, as returned by load_platforms.
+        access: Walking legs from the grid cells to nearby platforms, as returned by
+            load_or_compute_access.
+        network: Network of the service day, as returned by build_network.
+        area_xy: Area of the OpenStreetMap extract in metres in PROJECTED_CRS.
+        osm_name: File name of the OpenStreetMap extract, for error messages.
+    """
+
+    graph: WalkingGraph
+    grid: np.ndarray
+    platforms: pd.DataFrame
+    access: pd.DataFrame
+    network: Network
+    area_xy: shapely.Geometry
+    osm_name: str
+
+
+def load_inputs(feed_path: Path | None, osm_path: Path | None, date: dt.date) -> MapInputs:
+    """Read the feed and the OpenStreetMap extract and build what every map of a day needs.
+
+    The walking legs from the grid cells to the platforms are read from a cache in
+    PROCESSED_DIR, named after the feed, the OpenStreetMap extract and the access radius; the
+    first run for a pair of files computes them (about 3 minutes).
+
+    Args:
+        feed_path: GTFS feed; None means the most recent one in the raw data folder.
+        osm_path: OpenStreetMap .osm.pbf extract, with its .poly file next to it; None means
+            the most recent one in the raw data folder.
+        date: Service day.
+
+    Returns:
+        The inputs of the maps of that day.
+
+    Raises:
+        SystemExit: If the date is outside the feed.
+    """
+    feed_path = feed_path or latest_raw_file("mvv_gtfs_*.zip")
+    osm_path = osm_path or latest_raw_file("*.osm.pbf")
+    area_name = osm_path.name.removesuffix(".osm.pbf")
+
+    first, last = feed_period(feed_path)
+    if not first <= date <= last:
+        raise SystemExit(f"{date} is outside the feed {feed_path.name} ({first} to {last})")
+
+    area = read_poly(osm_path.with_name(f"{area_name}.poly"))
+    area_xy = shapely.transform(area, lambda lonlat: np.column_stack(to_projected(*lonlat.T)))
+    graph = build_walking_graph(osm_path)
+    platforms = load_platforms(feed_path)
+    grid = build_grid(platforms)
+    grid = grid[shapely.contains_xy(area_xy, grid[:, 0], grid[:, 1])]
+    cache_name = f"access_{feed_path.stem}_{area_name}_{ACCESS_RADIUS_M:.0f}m.npz"
+    access = load_or_compute_access(
+        PROCESSED_DIR / cache_name, graph, grid, platforms, ACCESS_RADIUS_M
+    )
+    network = build_network(build_connections(feed_path, date), build_transfers(feed_path))
+    return MapInputs(graph, grid, platforms, access, network, area_xy, osm_path.name)
+
+
+def projected_destination(inputs: MapInputs, lon: float, lat: float) -> np.ndarray:
+    """Return the coordinates of a destination in PROJECTED_CRS, checking it is in the area.
+
+    Args:
+        inputs: Inputs of the map, as returned by load_inputs.
+        lon: Longitude of the destination.
+        lat: Latitude of the destination.
+
+    Returns:
+        Coordinates of the destination in metres, with shape (2,).
+
+    Raises:
+        SystemExit: If the destination is outside the area of the OpenStreetMap extract.
+    """
+    destination_xy = np.array(to_projected(lon, lat))
+    if not shapely.contains_xy(inputs.area_xy, *destination_xy):
+        raise SystemExit(
+            f"the destination {lat}, {lon} is outside the area of {inputs.osm_name}"
+        )
+    return destination_xy
+
+
+def arrival_times_s(arrival: dt.time, window: int) -> list[int]:
+    """Return one arrival time per minute over a window centred on arrival.
+
+    Args:
+        arrival: Central arrival time.
+        window: Width of the window in minutes; 0 gives arrival alone.
+
+    Returns:
+        Arrival times in seconds after midnight, from window // 2 minutes before arrival to
+        window // 2 minutes after.
+    """
+    arrival_s = arrival.hour * 3600 + arrival.minute * 60 + arrival.second
+    half_window = window // 2
+    return [arrival_s + 60 * k for k in range(-half_window, half_window + 1)]
+
+
+def arrival_label(arrivals_s: list[int]) -> str:
+    """Write the arrival times as H:MM, or as a range H:MM–H:MM for a window.
+
+    Args:
+        arrivals_s: Increasing arrival times in seconds after midnight.
+
+    Returns:
+        The first time alone if there is only one, otherwise the first and the last time.
+    """
+    first_s, last_s = arrivals_s[0], arrivals_s[-1]
+    first = f"{first_s // 3600}:{first_s % 3600 // 60:02d}"
+    last = f"{last_s // 3600}:{last_s % 3600 // 60:02d}"
+    return first if len(arrivals_s) == 1 else f"{first}–{last}"
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Read the command-line arguments.
 
@@ -232,11 +352,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> Path:
     """Draw the isochrone map for the destination and arrival time given on the command line.
 
-    The walking legs from the grid cells to the platforms are read from a cache in
-    PROCESSED_DIR, named after the feed, the OpenStreetMap extract and the access radius; the
-    first run for a pair of files computes them (about 3 minutes). With a window, the map shows
-    the median travel time over one arrival time per minute, from window // 2 minutes before
-    the arrival time to window // 2 minutes after.
+    The inputs that do not depend on the destination come from load_inputs. With a window, the
+    map shows the median travel time over one arrival time per minute, from window // 2
+    minutes before the arrival time to window // 2 minutes after.
 
     Args:
         argv: Arguments without the program name, as for parse_args.
@@ -251,37 +369,22 @@ def main(argv: list[str] | None = None) -> Path:
     args = parse_args(argv)
     if args.window < 0:
         raise SystemExit(f"the window must not be negative, got {args.window}")
-    feed_path = args.feed or latest_raw_file("mvv_gtfs_*.zip")
-    osm_path = args.osm or latest_raw_file("*.osm.pbf")
-    area_name = osm_path.name.removesuffix(".osm.pbf")
+    inputs = load_inputs(args.feed, args.osm, args.date)
+    destination_xy = projected_destination(inputs, args.lon, args.lat)
 
-    first, last = feed_period(feed_path)
-    if not first <= args.date <= last:
-        raise SystemExit(f"{args.date} is outside the feed {feed_path.name} ({first} to {last})")
-
-    area = read_poly(osm_path.with_name(f"{area_name}.poly"))
-    area_xy = shapely.transform(area, lambda lonlat: np.column_stack(to_projected(*lonlat.T)))
-    destination_xy = np.array(to_projected(args.lon, args.lat))
-    if not shapely.contains_xy(area_xy, *destination_xy):
-        raise SystemExit(f"the destination is outside the area of {osm_path.name}")
-
-    graph = build_walking_graph(osm_path)
-    platforms = load_platforms(feed_path)
-    grid = build_grid(platforms)
-    grid = grid[shapely.contains_xy(area_xy, grid[:, 0], grid[:, 1])]
-    cache_name = f"access_{feed_path.stem}_{area_name}_{ACCESS_RADIUS_M:.0f}m.npz"
-    access = load_or_compute_access(
-        PROCESSED_DIR / cache_name, graph, grid, platforms, ACCESS_RADIUS_M
-    )
-    network = build_network(build_connections(feed_path, args.date), build_transfers(feed_path))
-
-    arrival_s = args.arrival.hour * 3600 + args.arrival.minute * 60 + args.arrival.second
-    half_window = args.window // 2
-    arrivals_s = [arrival_s + 60 * k for k in range(-half_window, half_window + 1)]
+    arrivals_s = arrival_times_s(args.arrival, args.window)
     minutes = median_minutes(
-        travel_minutes(graph, grid, platforms, access, network, destination_xy, arrivals_s)
+        travel_minutes(
+            inputs.graph,
+            inputs.grid,
+            inputs.platforms,
+            inputs.access,
+            inputs.network,
+            destination_xy,
+            arrivals_s,
+        )
     )
-    print(f"{np.isfinite(minutes).sum()} of {len(grid)} grid cells reach the destination")
+    print(f"{np.isfinite(minutes).sum()} of {len(inputs.grid)} grid cells reach the destination")
 
     window_suffix = f"_w{args.window}" if args.window else ""
     map_name = (
@@ -290,14 +393,12 @@ def main(argv: list[str] | None = None) -> Path:
     )
     output = args.output or MAPS_DIR / map_name
     output.parent.mkdir(parents=True, exist_ok=True)
-    first_s, last_s = arrivals_s[0], arrivals_s[-1]
     caption = (
-        f"Median travel time, arriving {first_s // 3600}:{first_s % 3600 // 60:02d}–"
-        f"{last_s // 3600}:{last_s % 3600 // 60:02d} (min)"
+        f"Median travel time, arriving {arrival_label(arrivals_s)} (min)"
         if args.window
         else "Travel time (min)"
     )
-    bands = band_polygons(grid, minutes)
+    bands = band_polygons(inputs.grid, minutes)
     isochrone_map(bands, (args.lon, args.lat), caption=caption).save(output)
     print(f"map saved to {output}")
     return output
